@@ -9,6 +9,7 @@ export interface FormatShape {
     groupSize?: number;
     groupSeparator?: string;
     suffix?: string;
+    fallback?: string; // Value to return on error or invalid input
 }
 
 /**
@@ -20,6 +21,7 @@ const DEFAULT_FMT: Required<FormatShape> = {
     groupSize: 3,
     groupSeparator: ',',
     suffix: '',
+    fallback: '-', // Default fallback value
 };
 
 /**
@@ -123,7 +125,7 @@ export function formatMoneyPrecise(
             .toFormat(places, roundingMode, bnFmt);
         return finalize(out, F);
     } catch {
-        return finalize('-', F);
+        return F.fallback; // Return custom fallback on error
     }
 }
 
@@ -144,7 +146,7 @@ export function formatMoneyFast(
 
     const num = typeof value === 'string' ? parseFloat(value) : value;
     // Check for NaN, Infinity, and -Infinity
-    if (!isFinite(num)) return finalize('-', F);
+    if (!isFinite(num)) return F.fallback; // Return custom fallback
 
     const divided = num / UNITS[unit];
     const fixed = divided.toFixed(places);
@@ -180,8 +182,8 @@ export function formatMoneyFast(
  * @param decimalPlaces - Number of decimal places to display
  * @param precise - If true, uses BigNumber for exact calculations; if false, uses fast native method
  * @param roundingMode - Rounding mode (only used when precise=true)
- * @param fmt - Custom formatting options (separators, prefix, suffix)
- * @returns Formatted string or '-' if value is invalid
+ * @param fmt - Custom formatting options (separators, prefix, suffix, fallback)
+ * @returns Formatted string or fallback value if input is invalid
  */
 export function formatMoney(
     value: number | string | undefined,
@@ -191,8 +193,9 @@ export function formatMoney(
     roundingMode: BigNumber.RoundingMode = BigNumber.ROUND_HALF_UP,
     fmt?: FormatShape
 ): string {
+    const F = mergeFormat(fmt);
     // Handle null and undefined with loose equality check
-    if (value == null) return finalize('-', mergeFormat(fmt));
+    if (value == null) return F.fallback; // Return custom fallback
 
     return precise
         ? formatMoneyPrecise(value, unit, decimalPlaces, roundingMode, fmt)
