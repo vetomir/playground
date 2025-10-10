@@ -16,10 +16,60 @@ export interface FormatShape {
     suffix?: string;
     fallback?: string;
     keepTrailingZeros?: boolean;
+    trimZeroDecimals?: boolean; // If true, removes decimal part when all zeros (e.g., "13.00" → "13")
 }
 
 /**
  * Default formatting configuration (US/International style)
+ *
+ * Options explained:
+ *
+ * prefix: ''
+ *   - Text added before the number (e.g., '$' for "$1,234")
+ *
+ * decimalSeparator: '.'
+ *   - Character separating integer and decimal parts
+ *   - Examples: '.' → "1234.56" | ',' → "1234,56"
+ *
+ * groupSize: 3
+ *   - Number of digits in each group for thousand separators
+ *   - Examples: 3 → "1,234,567" | 2 → "12,34,567"
+ *
+ * groupSeparator: ','
+ *   - Character separating digit groups
+ *   - Examples: ',' → "1,234" | ' ' → "1 234" | '_' → "1_234"
+ *
+ * suffix: ''
+ *   - Text added after the number (e.g., ' USD' for "1,234 USD")
+ *
+ * fallback: '-'
+ *   - Value returned when input is invalid (null, undefined, NaN, Infinity)
+ *   - Examples: '-' → returns "-" | 'N/A' → returns "N/A" | '' → returns ""
+ *
+ * keepTrailingZeros: false
+ *   - Controls whether to keep all trailing zeros
+ *   - false: "1.50" → "1.5" (removes trailing zeros after non-zero digit)
+ *   - true: "1.50" → "1.50" (keeps all zeros as specified by decimalPlaces)
+ *   - Note: Only affects zeros AFTER a non-zero digit, not all-zero decimals
+ *
+ * trimZeroDecimals: true
+ *   - Controls whether to remove decimal part when ALL decimals are zeros
+ *   - true: "13.00" → "13" | "123.000" → "123" (removes .00 completely)
+ *   - false: "13.00" → "13.00" | "123.000" → "123.000" (keeps .00)
+ *   - true: "13.10" → "13.10" | "123.050" → "123.050" (keeps if non-zero present)
+ *
+ * Behavior combinations:
+ * - keepTrailingZeros=false, trimZeroDecimals=true (DEFAULT):
+ *   "13.00" → "13" | "13.50" → "13.5" | "13.10" → "13.1"
+ *
+ * - keepTrailingZeros=false, trimZeroDecimals=false:
+ *   "13.00" → "13.00" | "13.50" → "13.5" | "13.10" → "13.1"
+ *
+ * - keepTrailingZeros=true, trimZeroDecimals=true:
+ *   "13.00" → "13" | "13.50" → "13.50" | "13.10" → "13.10"
+ *
+ * - keepTrailingZeros=true, trimZeroDecimals=false:
+ *   "13.00" → "13.00" | "13.50" → "13.50" | "13.10" → "13.10"
  */
 const DEFAULT_FMT: Required<FormatShape> = {
     prefix: '',
@@ -29,6 +79,7 @@ const DEFAULT_FMT: Required<FormatShape> = {
     suffix: '',
     fallback: '-',
     keepTrailingZeros: false,
+    trimZeroDecimals: true,
 };
 
 /**
@@ -103,7 +154,7 @@ function groupThousands(intPart: string, groupSize: number, groupSep: string): s
 function mergeFormat(custom?: FormatShape): Required<FormatShape> {
     // Return default directly if no customization
     if (!custom || Object.keys(custom).length === 0) return DEFAULT_FMT;
-    return {...DEFAULT_FMT, ...custom};
+    return { ...DEFAULT_FMT, ...custom };
 }
 
 /**
@@ -152,8 +203,8 @@ export function formatMoneyPrecise(
             .dividedBy(UNITS[unit])
             .toFormat(places, roundingMode, bnFmt);
 
-        // Trim only if all decimals are zeros and keepTrailingZeros is false
-        if (!F.keepTrailingZeros && places > 0) {
+        // Trim only if all decimals are zeros, keepTrailingZeros is false, and trimZeroDecimals is true
+        if (!F.keepTrailingZeros && F.trimZeroDecimals && places > 0) {
             out = trimOnlyAllZeroDecimals(out, F.decimalSeparator);
         }
 
@@ -166,7 +217,7 @@ export function formatMoneyPrecise(
 /**
  * Fast formatting using native JavaScript number methods
  * ~10x faster than precise version but uses standard rounding
- * Trims all-zero decimals automatically for cleaner output (unless keepTrailingZeros is true)
+ * Trims all-zero decimals automatically for cleaner output (unless disabled)
  */
 export function formatMoneyFast(
     value: number | string,
@@ -194,8 +245,8 @@ export function formatMoneyFast(
 
     let out = fracPart ? intPart + F.decimalSeparator + fracPart : intPart;
 
-    // Trim only if all decimals are zeros and keepTrailingZeros is false
-    if (!F.keepTrailingZeros && places > 0 && fracPart) {
+    // Trim only if all decimals are zeros, keepTrailingZeros is false, and trimZeroDecimals is true
+    if (!F.keepTrailingZeros && F.trimZeroDecimals && places > 0 && fracPart) {
         out = trimOnlyAllZeroDecimals(out, F.decimalSeparator);
     }
 
@@ -209,7 +260,7 @@ export function formatMoneyFast(
  * @param decimalPlaces - Number of decimal places to display
  * @param precise - If true, uses BigNumber for exact calculations; if false, uses fast native method
  * @param roundingMode - Rounding mode (only used when precise=true)
- * @param fmt - Custom formatting options (separators, prefix, suffix, fallback, keepTrailingZeros)
+ * @param fmt - Custom formatting options (separators, prefix, suffix, fallback, keepTrailingZeros, trimZeroDecimals)
  * @returns Formatted string or fallback value if input is invalid
  */
 export function formatMoney(
