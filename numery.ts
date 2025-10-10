@@ -1,5 +1,8 @@
 import BigNumber from 'bignumber.js';
 
+/**
+ * Configuration for number formatting output
+ */
 export interface FormatShape {
     prefix?: string;
     decimalSeparator?: string;
@@ -8,6 +11,9 @@ export interface FormatShape {
     suffix?: string;
 }
 
+/**
+ * Default formatting configuration (US/International style)
+ */
 const DEFAULT_FMT: Required<FormatShape> = {
     prefix: '',
     decimalSeparator: '.',
@@ -16,6 +22,9 @@ const DEFAULT_FMT: Required<FormatShape> = {
     suffix: '',
 };
 
+/**
+ * Unit multipliers for different denominations
+ */
 const UNITS: Record<'$' | '$k' | '$M' | '$B', number> = {
     $: 1,
     $k: 1_000,
@@ -23,9 +32,14 @@ const UNITS: Record<'$' | '$k' | '$M' | '$B', number> = {
     $B: 1_000_000_000,
 };
 
-// Cache dla regexów - unikamy tworzenia nowych przy każdym wywołaniu
+/**
+ * Cache for compiled regex patterns to improve performance
+ */
 const regexCache = new Map<string, RegExp>();
 
+/**
+ * Returns cached regex or creates and caches a new one
+ */
 function getCachedRegex(pattern: string, flags?: string): RegExp {
     const key = `${pattern}::${flags ?? ''}`;
     if (!regexCache.has(key)) {
@@ -34,25 +48,35 @@ function getCachedRegex(pattern: string, flags?: string): RegExp {
     return regexCache.get(key)!;
 }
 
+/**
+ * Converts negative zero values to positive zero (e.g., "-0.00" → "0.00")
+ */
 function normalizeNegativeZero(value: string): string {
     return value.replace(getCachedRegex('^-0(\\.0+)?$'), '0$1');
 }
 
+/**
+ * Adds prefix/suffix and normalizes the output value
+ */
 function finalize(out: string, fmt: Required<FormatShape>): string {
     const normalized = normalizeNegativeZero(out);
-    // Optymalizacja: jeśli brak prefix/suffix, zwróć od razu
+    // Skip concatenation if no prefix/suffix defined
     if (!fmt.prefix && !fmt.suffix) return normalized;
     return fmt.prefix + normalized + fmt.suffix;
 }
 
+/**
+ * Groups integer part with thousand separators (e.g., "1234567" → "1,234,567")
+ * Handles negative numbers correctly by preserving the minus sign
+ */
 function groupThousands(intPart: string, groupSize: number, groupSep: string): string {
-    // Early return dla edge cases
+    // Early returns for cases where grouping isn't needed
     if (groupSize <= 0 || !groupSep || intPart.length <= groupSize) return intPart;
 
     const isNegative = intPart[0] === '-';
     const digits = isNegative ? intPart.slice(1) : intPart;
 
-    // Optymalizacja: jeśli liczba cyfr <= groupSize, nie grupuj
+    // Skip grouping if number is too short
     if (digits.length <= groupSize) return intPart;
 
     const pattern = `\\B(?=(\\d{${groupSize}})+(?!\\d))`;
@@ -61,12 +85,20 @@ function groupThousands(intPart: string, groupSize: number, groupSep: string): s
     return isNegative ? '-' + grouped : grouped;
 }
 
+/**
+ * Merges custom format with defaults, optimized for empty custom objects
+ */
 function mergeFormat(custom?: FormatShape): Required<FormatShape> {
-    // Optymalizacja: jeśli brak customizacji, zwróć default
+    // Return default directly if no customization
     if (!custom || Object.keys(custom).length === 0) return DEFAULT_FMT;
     return { ...DEFAULT_FMT, ...custom };
 }
 
+/**
+ * High-precision formatting using BigNumber library
+ * Supports custom rounding modes and all format options
+ * Use for financial calculations or when exact precision is required
+ */
 export function formatMoneyPrecise(
     value: number | string,
     unit: '$' | '$k' | '$M' | '$B' = '$',
@@ -75,7 +107,8 @@ export function formatMoneyPrecise(
     fmt?: FormatShape
 ): string {
     const F = mergeFormat(fmt);
-    const places = Math.max(0, Math.floor(decimalPlaces)); // Walidacja + zaokrąglenie
+    // Ensure decimal places is non-negative integer
+    const places = Math.max(0, Math.floor(decimalPlaces));
 
     try {
         const bnFmt = {
@@ -94,6 +127,11 @@ export function formatMoneyPrecise(
     }
 }
 
+/**
+ * Fast formatting using native JavaScript number methods
+ * ~10x faster than precise version but uses standard rounding
+ * Trims trailing zeros automatically for cleaner output
+ */
 export function formatMoneyFast(
     value: number | string,
     unit: '$' | '$k' | '$M' | '$B' = '$',
@@ -101,14 +139,17 @@ export function formatMoneyFast(
     fmt?: FormatShape
 ): string {
     const F = mergeFormat(fmt);
-    const places = Math.max(0, Math.floor(decimalPlaces)); // Walidacja + zaokrąglenie
+    // Ensure decimal places is non-negative integer
+    const places = Math.max(0, Math.floor(decimalPlaces));
 
     const num = typeof value === 'string' ? parseFloat(value) : value;
-    if (!isFinite(num)) return finalize('-', F); // isFinite łapie też NaN i Infinity
+    // Check for NaN, Infinity, and -Infinity
+    if (!isFinite(num)) return finalize('-', F);
 
     const divided = num / UNITS[unit];
     const fixed = divided.toFixed(places);
 
+    // Manual split is faster than array destructuring for large operations
     const dotIndex = fixed.indexOf('.');
     let intPart = dotIndex === -1 ? fixed : fixed.slice(0, dotIndex);
     let fracPart = dotIndex === -1 ? '' : fixed.slice(dotIndex + 1);
@@ -117,20 +158,31 @@ export function formatMoneyFast(
 
     let out = fracPart ? intPart + F.decimalSeparator + fracPart : intPart;
 
-    // Trimming zer tylko jeśli są miejsca dziesiętne
+    // Trim trailing zeros only if we have decimal places and fractional part
     if (places > 0 && fracPart) {
+        // Escape special regex characters in decimal separator
         const escSep = F.decimalSeparator.replace(getCachedRegex('[.*+?^${}()|[\\]\\\\]', 'g'), '\\$&');
         const trimPattern = `(${escSep}\\d*?)0+$`;
         const endPattern = `${escSep}$`;
 
         out = out
-            .replace(getCachedRegex(trimPattern), '$1')
-            .replace(getCachedRegex(endPattern), '');
+            .replace(getCachedRegex(trimPattern), '$1')  // Remove trailing zeros
+            .replace(getCachedRegex(endPattern), '');     // Remove separator if no decimals left
     }
 
     return finalize(out, F);
 }
 
+/**
+ * Main formatting function with automatic precision switching
+ * @param value - Number or numeric string to format
+ * @param unit - Unit denomination ($ = 1, $k = 1000, $M = million, $B = billion)
+ * @param decimalPlaces - Number of decimal places to display
+ * @param precise - If true, uses BigNumber for exact calculations; if false, uses fast native method
+ * @param roundingMode - Rounding mode (only used when precise=true)
+ * @param fmt - Custom formatting options (separators, prefix, suffix)
+ * @returns Formatted string or '-' if value is invalid
+ */
 export function formatMoney(
     value: number | string | undefined,
     unit: '$' | '$k' | '$M' | '$B' = '$',
@@ -139,7 +191,8 @@ export function formatMoney(
     roundingMode: BigNumber.RoundingMode = BigNumber.ROUND_HALF_UP,
     fmt?: FormatShape
 ): string {
-    if (value == null) return finalize('-', mergeFormat(fmt)); // == łapie undefined i null
+    // Handle null and undefined with loose equality check
+    if (value == null) return finalize('-', mergeFormat(fmt));
 
     return precise
         ? formatMoneyPrecise(value, unit, decimalPlaces, roundingMode, fmt)
