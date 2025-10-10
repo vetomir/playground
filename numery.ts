@@ -103,7 +103,7 @@ function groupThousands(intPart: string, groupSize: number, groupSep: string): s
 function mergeFormat(custom?: FormatShape): Required<FormatShape> {
     // Return default directly if no customization
     if (!custom || Object.keys(custom).length === 0) return DEFAULT_FMT;
-    return { ...DEFAULT_FMT, ...custom };
+    return {...DEFAULT_FMT, ...custom};
 }
 
 /**
