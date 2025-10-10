@@ -1,6 +1,11 @@
 import BigNumber from 'bignumber.js';
 
 /**
+ * Available unit types for formatting
+ */
+export type UnitType = '$' | '$k' | '$m' | '$b';
+
+/**
  * Configuration for number formatting output
  */
 export interface FormatShape {
@@ -9,7 +14,8 @@ export interface FormatShape {
     groupSize?: number;
     groupSeparator?: string;
     suffix?: string;
-    fallback?: string; // Value to return on error or invalid input
+    fallback?: string;
+    keepTrailingZeros?: boolean; // If true, keeps trailing zeros (e.g., "1.50"); if false, trims them (e.g., "1.5")
 }
 
 /**
@@ -21,17 +27,18 @@ const DEFAULT_FMT: Required<FormatShape> = {
     groupSize: 3,
     groupSeparator: ',',
     suffix: '',
-    fallback: '-', // Default fallback value
+    fallback: '-',
+    keepTrailingZeros: false, // Default behavior: trim trailing zeros
 };
 
 /**
  * Unit multipliers for different denominations
  */
-const UNITS: Record<'$' | '$k' | '$M' | '$B', number> = {
+const UNITS: Record<UnitType, number> = {
     $: 1,
     $k: 1_000,
-    $M: 1_000_000,
-    $B: 1_000_000_000,
+    $m: 1_000_000,
+    $b: 1_000_000_000,
 };
 
 /**
@@ -103,7 +110,7 @@ function mergeFormat(custom?: FormatShape): Required<FormatShape> {
  */
 export function formatMoneyPrecise(
     value: number | string,
-    unit: '$' | '$k' | '$M' | '$B' = '$',
+    unit: UnitType = '$',
     decimalPlaces: number = 0,
     roundingMode: BigNumber.RoundingMode = BigNumber.ROUND_HALF_UP,
     fmt?: FormatShape
@@ -120,23 +127,35 @@ export function formatMoneyPrecise(
             groupSeparator: F.groupSeparator,
             suffix: '',
         };
-        const out = new BigNumber(value)
+        let out = new BigNumber(value)
             .dividedBy(UNITS[unit])
             .toFormat(places, roundingMode, bnFmt);
+
+        // Trim trailing zeros if keepTrailingZeros is false
+        if (!F.keepTrailingZeros && places > 0) {
+            const escSep = F.decimalSeparator.replace(getCachedRegex('[.*+?^${}()|[\\]\\\\]', 'g'), '\\$&');
+            const trimPattern = `(${escSep}\\d*?)0+$`;
+            const endPattern = `${escSep}$`;
+
+            out = out
+                .replace(getCachedRegex(trimPattern), '$1')
+                .replace(getCachedRegex(endPattern), '');
+        }
+
         return finalize(out, F);
     } catch {
-        return F.fallback; // Return custom fallback on error
+        return F.fallback;
     }
 }
 
 /**
  * Fast formatting using native JavaScript number methods
  * ~10x faster than precise version but uses standard rounding
- * Trims trailing zeros automatically for cleaner output
+ * Trims trailing zeros automatically for cleaner output (unless keepTrailingZeros is true)
  */
 export function formatMoneyFast(
     value: number | string,
-    unit: '$' | '$k' | '$M' | '$B' = '$',
+    unit: UnitType = '$',
     decimalPlaces: number = 0,
     fmt?: FormatShape
 ): string {
@@ -146,7 +165,7 @@ export function formatMoneyFast(
 
     const num = typeof value === 'string' ? parseFloat(value) : value;
     // Check for NaN, Infinity, and -Infinity
-    if (!isFinite(num)) return F.fallback; // Return custom fallback
+    if (!isFinite(num)) return F.fallback;
 
     const divided = num / UNITS[unit];
     const fixed = divided.toFixed(places);
@@ -160,8 +179,8 @@ export function formatMoneyFast(
 
     let out = fracPart ? intPart + F.decimalSeparator + fracPart : intPart;
 
-    // Trim trailing zeros only if we have decimal places and fractional part
-    if (places > 0 && fracPart) {
+    // Trim trailing zeros only if keepTrailingZeros is false and we have decimal places
+    if (!F.keepTrailingZeros && places > 0 && fracPart) {
         // Escape special regex characters in decimal separator
         const escSep = F.decimalSeparator.replace(getCachedRegex('[.*+?^${}()|[\\]\\\\]', 'g'), '\\$&');
         const trimPattern = `(${escSep}\\d*?)0+$`;
@@ -178,16 +197,16 @@ export function formatMoneyFast(
 /**
  * Main formatting function with automatic precision switching
  * @param value - Number or numeric string to format
- * @param unit - Unit denomination ($ = 1, $k = 1000, $M = million, $B = billion)
+ * @param unit - Unit denomination ($ = 1, $k = 1000, $m = million, $b = billion)
  * @param decimalPlaces - Number of decimal places to display
  * @param precise - If true, uses BigNumber for exact calculations; if false, uses fast native method
  * @param roundingMode - Rounding mode (only used when precise=true)
- * @param fmt - Custom formatting options (separators, prefix, suffix, fallback)
+ * @param fmt - Custom formatting options (separators, prefix, suffix, fallback, keepTrailingZeros)
  * @returns Formatted string or fallback value if input is invalid
  */
 export function formatMoney(
     value: number | string | undefined,
-    unit: '$' | '$k' | '$M' | '$B' = '$',
+    unit: UnitType = '$',
     decimalPlaces: number = 0,
     precise: boolean = false,
     roundingMode: BigNumber.RoundingMode = BigNumber.ROUND_HALF_UP,
@@ -195,7 +214,7 @@ export function formatMoney(
 ): string {
     const F = mergeFormat(fmt);
     // Handle null and undefined with loose equality check
-    if (value == null) return F.fallback; // Return custom fallback
+    if (value == null) return F.fallback;
 
     return precise
         ? formatMoneyPrecise(value, unit, decimalPlaces, roundingMode, fmt)
