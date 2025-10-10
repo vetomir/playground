@@ -15,7 +15,7 @@ export interface FormatShape {
     groupSeparator?: string;
     suffix?: string;
     fallback?: string;
-    keepTrailingZeros?: boolean; // If true, keeps trailing zeros (e.g., "1.50"); if false, trims them (e.g., "1.5")
+    keepTrailingZeros?: boolean;
 }
 
 /**
@@ -28,7 +28,7 @@ const DEFAULT_FMT: Required<FormatShape> = {
     groupSeparator: ',',
     suffix: '',
     fallback: '-',
-    keepTrailingZeros: false, // Default behavior: trim trailing zeros
+    keepTrailingZeros: false,
 };
 
 /**
@@ -59,8 +59,11 @@ function getCachedRegex(pattern: string, flags?: string): RegExp {
 
 /**
  * Converts negative zero values to positive zero (e.g., "-0.00" → "0.00")
+ * Optimized: direct character check before regex
  */
 function normalizeNegativeZero(value: string): string {
+    // Quick check: if doesn't start with '-0', skip regex
+    if (!value.startsWith('-0')) return value;
     return value.replace(getCachedRegex('^-0(\\.0+)?$'), '0$1');
 }
 
@@ -104,6 +107,24 @@ function mergeFormat(custom?: FormatShape): Required<FormatShape> {
 }
 
 /**
+ * Trims decimal part only if it contains all zeros - optimized version
+ * Uses manual character checking instead of regex for better performance
+ */
+function trimOnlyAllZeroDecimals(value: string, decimalSep: string): string {
+    const sepIndex = value.lastIndexOf(decimalSep);
+    if (sepIndex === -1) return value;
+
+    // Check if all characters after separator are zeros
+    const afterSep = value.slice(sepIndex + decimalSep.length);
+    for (let i = 0; i < afterSep.length; i++) {
+        if (afterSep[i] !== '0') return value; // Found non-zero, keep everything
+    }
+
+    // All zeros - remove decimal part
+    return value.slice(0, sepIndex);
+}
+
+/**
  * High-precision formatting using BigNumber library
  * Supports custom rounding modes and all format options
  * Use for financial calculations or when exact precision is required
@@ -131,15 +152,9 @@ export function formatMoneyPrecise(
             .dividedBy(UNITS[unit])
             .toFormat(places, roundingMode, bnFmt);
 
-        // Trim trailing zeros if keepTrailingZeros is false
+        // Trim only if all decimals are zeros and keepTrailingZeros is false
         if (!F.keepTrailingZeros && places > 0) {
-            const escSep = F.decimalSeparator.replace(getCachedRegex('[.*+?^${}()|[\\]\\\\]', 'g'), '\\$&');
-            const trimPattern = `(${escSep}\\d*?)0+$`;
-            const endPattern = `${escSep}$`;
-
-            out = out
-                .replace(getCachedRegex(trimPattern), '$1')
-                .replace(getCachedRegex(endPattern), '');
+            out = trimOnlyAllZeroDecimals(out, F.decimalSeparator);
         }
 
         return finalize(out, F);
@@ -151,7 +166,7 @@ export function formatMoneyPrecise(
 /**
  * Fast formatting using native JavaScript number methods
  * ~10x faster than precise version but uses standard rounding
- * Trims trailing zeros automatically for cleaner output (unless keepTrailingZeros is true)
+ * Trims all-zero decimals automatically for cleaner output (unless keepTrailingZeros is true)
  */
 export function formatMoneyFast(
     value: number | string,
@@ -179,16 +194,9 @@ export function formatMoneyFast(
 
     let out = fracPart ? intPart + F.decimalSeparator + fracPart : intPart;
 
-    // Trim trailing zeros only if keepTrailingZeros is false and we have decimal places
+    // Trim only if all decimals are zeros and keepTrailingZeros is false
     if (!F.keepTrailingZeros && places > 0 && fracPart) {
-        // Escape special regex characters in decimal separator
-        const escSep = F.decimalSeparator.replace(getCachedRegex('[.*+?^${}()|[\\]\\\\]', 'g'), '\\$&');
-        const trimPattern = `(${escSep}\\d*?)0+$`;
-        const endPattern = `${escSep}$`;
-
-        out = out
-            .replace(getCachedRegex(trimPattern), '$1')  // Remove trailing zeros
-            .replace(getCachedRegex(endPattern), '');     // Remove separator if no decimals left
+        out = trimOnlyAllZeroDecimals(out, F.decimalSeparator);
     }
 
     return finalize(out, F);
