@@ -1,0 +1,86 @@
+.abc {
+  pointer-events: none;
+  position: fixed;
+  right: 0;
+  bottom: -50px;
+  min-height: 30px;
+  height: fit-content;
+  min-width: 50px;
+  width: fit-content;
+  transition: opacity 100ms;
+  z-index: 100000;
+  color: #fff;
+
+  font-size: 14px;
+  white-space: nowrap;
+  line-height: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: normal;
+  background: #111112a0;
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-radius: 0 15px 15px 15px;
+  overflow: hidden;
+
+  opacity: 0;
+  animation: fadeIn 300ms ease forwards;
+  animation-delay: 100ms;
+
+
+  &.text {
+    padding: 10px 20px;
+  }
+
+  &.raw {
+    padding: 0;
+  }
+
+  &.fixed {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: unset !important;
+    bottom: unset !important;
+    transition: 0ms;
+  }
+
+  &.top {
+    top: -50px;
+    bottom: unset;
+  }
+
+  &.left {
+    border-radius: 25px 0 25px 25px;
+  }
+
+  &.list {
+    flex-direction: column;
+    height: fit-content;
+    white-space: wrap;
+    align-items: flex-start;
+    gap: 10px;
+    top: 50px;
+    width: 300px;
+    text-align: left;
+    padding: 10px 10px 20px 10px;
+
+    li {
+      margin: 0 0 0 30px;
+      padding: 0;
+    }
+  }
+}
+.toolTipWrapper{
+  color: inherit;
+  font-size: inherit;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

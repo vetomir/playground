@@ -1,5 +1,5 @@
-import { useParams } from 'react-router-dom';
-import { useRecoilValue, selectorFamily, Suspense } from 'recoil';
+import {useParams} from 'react-router-dom';
+import {selectorFamily, Suspense, useRecoilValue} from 'recoil';
 
 // ============================================
 // TYPES
@@ -20,7 +20,7 @@ interface OrchestratorConfig<TMain, TDerived, TFinal> {
     ) => Array<{
         key: string;
         url: string;
-        method?: 'GET' | 'POST';
+        method?: 'GET' | 'POST';x
         body?: any;
         priority?: number;
     }>;
@@ -79,7 +79,7 @@ class OrchestratorEngine<TMain, TDerived, TFinal> {
 
             const response = await fetch(url, {
                 method: req.method || 'GET',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {'Content-Type': 'application/json'},
                 body: body ? JSON.stringify(body) : undefined,
             });
 
@@ -87,12 +87,12 @@ class OrchestratorEngine<TMain, TDerived, TFinal> {
                 throw new Error(`${req.key} failed: ${response.status}`);
             }
 
-            return { key: req.key, data: await response.json() };
+            return {key: req.key, data: await response.json()};
         });
 
         const mainResults = await Promise.all(mainPromises);
         const mainData = mainResults.reduce(
-            (acc, { key, data }) => ({ ...acc, [key]: data }),
+            (acc, {key, data}) => ({...acc, [key]: data}),
             {} as Record<string, TMain>
         );
 
@@ -105,7 +105,7 @@ class OrchestratorEngine<TMain, TDerived, TFinal> {
         if (derivedConfigs.length === 0) {
             return (finalMapper
                     ? finalMapper(mainData, {} as Record<string, TDerived>, this.id, this.type)
-                    : { main: mainData, derived: {} } as TFinal
+                    : {main: mainData, derived: {}} as TFinal
             );
         }
 
@@ -126,7 +126,7 @@ class OrchestratorEngine<TMain, TDerived, TFinal> {
             const batchPromises = batch.map(async (req) => {
                 const response = await fetch(req.url, {
                     method: req.method || 'GET',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {'Content-Type': 'application/json'},
                     body: req.body ? JSON.stringify(req.body) : undefined,
                 });
 
@@ -134,11 +134,11 @@ class OrchestratorEngine<TMain, TDerived, TFinal> {
                     throw new Error(`${req.key} failed: ${response.status}`);
                 }
 
-                return { key: req.key, data: await response.json() };
+                return {key: req.key, data: await response.json()};
             });
 
             const batchResults = await Promise.all(batchPromises);
-            batchResults.forEach(({ key, data }) => {
+            batchResults.forEach(({key, data}) => {
                 derivedData[key] = data;
             });
 
@@ -154,7 +154,7 @@ class OrchestratorEngine<TMain, TDerived, TFinal> {
 
         return finalMapper
             ? finalMapper(mainData, derivedData, this.id, this.type)
-            : ({ main: mainData, derived: derivedData } as TFinal);
+            : ({main: mainData, derived: derivedData} as TFinal);
     }
 }
 
@@ -170,7 +170,7 @@ interface SelectorKey<TMain, TDerived, TFinal> {
 
 export const orchestratorSelector = selectorFamily<any, SelectorKey<any, any, any>>({
     key: 'orchestratorSelector',
-    get: ({ config, id, type }) => async () => {
+    get: ({config, id, type}) => async () => {
         const engine = new OrchestratorEngine(config, id, type);
         return await engine.execute();
     },
@@ -190,7 +190,7 @@ function OrchestratorInner<TMain, TDerived, TFinal>({
                                                         config,
                                                         children,
                                                     }: Omit<OrchestratorProps<TMain, TDerived, TFinal>, 'fallback'>) {
-    const { id, type } = useParams<OrchestratorParams>();
+    const {id, type} = useParams<OrchestratorParams>();
 
     if (!id || !type) {
         throw new Error('Missing id or type in URL params');
@@ -198,7 +198,7 @@ function OrchestratorInner<TMain, TDerived, TFinal>({
 
     // Immediate execution on render
     const data = useRecoilValue(
-        orchestratorSelector({ config, id, type })
+        orchestratorSelector({config, id, type})
     );
 
     return <>{children(data, id, type)}</>;
@@ -253,7 +253,7 @@ const exampleConfig: OrchestratorConfig<MainResponse, DerivedResponse, FinalData
             key: 'additional',
             url: (id, type) => `https://foo.pl/additional/${id}`,
             method: 'POST',
-            body: (id, type) => ({ itemId: id, itemType: type }),
+            body: (id, type) => ({itemId: id, itemType: type}),
         },
     ],
 
