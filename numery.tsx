@@ -5,9 +5,20 @@ import './style.css';
 interface OptimizedTableProps {
     data: Record<string, any>[];
     headers: string[];
+    estimatedRowHeight?: number;
+    estimatedColumnWidth?: number;
+    rowOverscan?: number;
+    columnOverscan?: number;
 }
 
-export const OptimizedTable: React.FC<OptimizedTableProps> = ({ data, headers }) => {
+export const OptimizedTable: React.FC<OptimizedTableProps> = ({
+                                                                  data,
+                                                                  headers,
+                                                                  estimatedRowHeight = 35,
+                                                                  estimatedColumnWidth = 150,
+                                                                  rowOverscan,
+                                                                  columnOverscan,
+                                                              }) => {
     const parentRef = useRef<HTMLDivElement>(null);
     const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
@@ -28,12 +39,16 @@ export const OptimizedTable: React.FC<OptimizedTableProps> = ({ data, headers })
         return () => resizeObserver.disconnect();
     }, []);
 
+    // Oblicz dynamiczny overscan jeśli nie podano w props
+    const calculatedRowOverscan = rowOverscan ?? Math.ceil(containerSize.height / estimatedRowHeight) || 5;
+    const calculatedColumnOverscan = columnOverscan ?? Math.ceil(containerSize.width / estimatedColumnWidth) || 3;
+
     // Wirtualizacja wierszy
     const rowVirtualizer = useVirtualizer({
         count: data.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => 35,
-        overscan: 5,
+        estimateSize: () => estimatedRowHeight,
+        overscan: calculatedRowOverscan,
     });
 
     // Wirtualizacja kolumn
@@ -41,12 +56,17 @@ export const OptimizedTable: React.FC<OptimizedTableProps> = ({ data, headers })
         horizontal: true,
         count: headers.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => 150,
-        overscan: 3,
+        estimateSize: () => estimatedColumnWidth,
+        overscan: calculatedColumnOverscan,
     });
 
     const virtualRows = rowVirtualizer.getVirtualItems();
     const virtualColumns = columnVirtualizer.getVirtualItems();
+
+    // Automatyczne dopasowanie szerokości kolumn do kontenera
+    const columnWidth = containerSize.width > 0
+        ? Math.max(estimatedColumnWidth, containerSize.width / Math.min(headers.length, 8))
+        : estimatedColumnWidth;
 
     // Padding dla wirtualnych elementów
     const [paddingTop, paddingBottom] =
@@ -64,20 +84,6 @@ export const OptimizedTable: React.FC<OptimizedTableProps> = ({ data, headers })
                 Math.max(0, columnVirtualizer.getTotalSize() - virtualColumns[virtualColumns.length - 1].end),
             ]
             : [0, 0];
-
-    // Fix dla sticky header - CSS variable approach
-    useEffect(() => {
-        const tableElement = parentRef.current?.querySelector('table');
-        const tbodyElement = parentRef.current?.querySelector('tbody');
-
-        if (tableElement && tbodyElement) {
-            const totalHeight = rowVirtualizer.getTotalSize();
-            const tbodyHeight = tbodyElement.getBoundingClientRect().height;
-            const heightDiff = Math.max(0, totalHeight - tbodyHeight);
-
-            document.documentElement.style.setProperty('--table-after-height', `${heightDiff}px`);
-        }
-    }, [virtualRows, rowVirtualizer]);
 
     return (
         <div ref={parentRef} className="table-container">
@@ -98,7 +104,8 @@ export const OptimizedTable: React.FC<OptimizedTableProps> = ({ data, headers })
                                 <th
                                     key={virtualColumn.key}
                                     style={{
-                                        width: `${virtualColumn.size}px`,
+                                        width: `${columnWidth}px`,
+                                        minWidth: `${columnWidth}px`,
                                     }}
                                 >
                                     {header}
@@ -130,7 +137,8 @@ export const OptimizedTable: React.FC<OptimizedTableProps> = ({ data, headers })
                                         <td
                                             key={virtualColumn.key}
                                             style={{
-                                                width: `${virtualColumn.size}px`,
+                                                width: `${columnWidth}px`,
+                                                minWidth: `${columnWidth}px`,
                                             }}
                                         >
                                             {row[header] ?? ''}
@@ -152,83 +160,39 @@ export const OptimizedTable: React.FC<OptimizedTableProps> = ({ data, headers })
         </div>
     );
 };
-.table-container {
-    width: 100%;
-    height: 600px;
-    overflow: auto;
-    position: relative;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-}
 
-.table-wrapper {
-    position: relative;
-    min-width: 100%;
-}
 
-.virtualized-table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-}
+// Domyślne wartości (35px wysokość, 150px szerokość)
+<OptimizedTable data={data} headers={headers} />
 
-/* Fix dla sticky header - pseudo-element */
-.virtualized-table::after {
-    content: '';
-    display: block;
-    height: var(--table-after-height, 0);
-}
+// Większe wiersze (np. dla danych z długim tekstem)
+<OptimizedTable
+    data={data}
+    headers={headers}
+    estimatedRowHeight={50}
+/>
 
-.sticky-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background-color: #f9fafb;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
+// Szersze kolumny
+<OptimizedTable
+    data={data}
+    headers={headers}
+    estimatedColumnWidth={200}
+/>
 
-.sticky-header th {
-    padding: 12px 16px;
-    text-align: left;
-    font-weight: 600;
-    font-size: 14px;
-    color: #374151;
-    border-bottom: 2px solid #e5e7eb;
-    background-color: #f9fafb;
-}
+// Pełna konfiguracja
+<OptimizedTable
+    data={data}
+    headers={headers}
+    estimatedRowHeight={40}
+    estimatedColumnWidth={180}
+    rowOverscan={10}
+    columnOverscan={5}
+/>
 
-.virtualized-table tbody tr {
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.virtualized-table tbody tr:hover {
-    background-color: #f3f4f6;
-}
-
-.virtualized-table td {
-    padding: 10px 16px;
-    font-size: 14px;
-    color: #1f2937;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Scrollbar styling */
-.table-container::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
-}
-
-.table-container::-webkit-scrollbar-track {
-    background: #f1f1f1;
-}
-
-.table-container::-webkit-scrollbar-thumb {
-    background: #888;
-    border-radius: 6px;
-}
-
-.table-container::-webkit-scrollbar-thumb:hover {
-    background: #555;
-}
+// Kompaktowa tabela
+<OptimizedTable
+    data={data}
+    headers={headers}
+    estimatedRowHeight={28}
+    estimatedColumnWidth={120}
+/>
