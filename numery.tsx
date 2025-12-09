@@ -40,14 +40,6 @@ export function VirtualTable({
         return () => resizeObserver.disconnect();
     }, []);
 
-    const getColumnWidth = () => {
-        if (dimensions.width === 0) return minColumnWidth;
-        const calculatedWidth = dimensions.width / headers.length;
-        return Math.max(calculatedWidth, minColumnWidth);
-    };
-
-    const columnWidth = getColumnWidth();
-
     const rowVirtualizer = useVirtualizer({
         count: data.length,
         getScrollElement: () => parentRef.current,
@@ -59,7 +51,7 @@ export function VirtualTable({
         horizontal: true,
         count: headers.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => columnWidth,
+        estimateSize: () => minColumnWidth,
         overscan: 3,
     });
 
@@ -67,86 +59,96 @@ export function VirtualTable({
     const virtualColumns = columnVirtualizer.getVirtualItems();
 
     const totalTableWidth = columnVirtualizer.getTotalSize();
-    const useFullWidth = totalTableWidth < dimensions.width;
+    const totalTableHeight = rowVirtualizer.getTotalSize();
 
     return (
         <div ref={parentRef} className="virtual-table-container">
-            {/* Header */}
+            {/* Wrapper o pełnej szerokości tabeli - wymusza scroll */}
             <div
-                className="virtual-table-header"
+                className="virtual-table-content"
                 style={{
-                    width: useFullWidth ? '100%' : `${totalTableWidth}px`,
+                    width: `${totalTableWidth}px`,
+                    height: `${totalTableHeight}px`,
+                    minWidth: '100%',
                 }}
             >
-                {virtualColumns.map((virtualColumn) => {
-                    const header = headers[virtualColumn.index];
-                    return (
-                        <div
-                            key={virtualColumn.key}
-                            className="virtual-table-header-cell"
-                            style={{
-                                position: useFullWidth ? 'relative' : 'absolute',
-                                left: useFullWidth ? 'auto' : 0,
-                                transform: useFullWidth ? 'none' : `translateX(${virtualColumn.start}px)`,
-                                width: `${virtualColumn.size}px`,
-                                height: `${rowHeight}px`,
-                            }}
-                        >
-                            {header}
-                        </div>
-                    );
-                })}
-            </div>
+                {/* Header */}
+                <div
+                    className="virtual-table-header"
+                    style={{
+                        width: `${totalTableWidth}px`,
+                        height: `${rowHeight}px`,
+                    }}
+                >
+                    {virtualColumns.map((virtualColumn) => {
+                        const header = headers[virtualColumn.index];
+                        return (
+                            <div
+                                key={virtualColumn.key}
+                                className="virtual-table-header-cell"
+                                style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    transform: `translateX(${virtualColumn.start}px)`,
+                                    width: `${virtualColumn.size}px`,
+                                    height: `${rowHeight}px`,
+                                }}
+                            >
+                                {header}
+                            </div>
+                        );
+                    })}
+                </div>
 
-            {/* Body */}
-            <div
-                className="virtual-table-body"
-                style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: useFullWidth ? '100%' : `${totalTableWidth}px`,
-                }}
-            >
-                {virtualRows.map((virtualRow) => {
-                    const row = data[virtualRow.index];
+                {/* Body */}
+                <div
+                    className="virtual-table-body"
+                    style={{
+                        height: `${totalTableHeight}px`,
+                        width: `${totalTableWidth}px`,
+                    }}
+                >
+                    {virtualRows.map((virtualRow) => {
+                        const row = data[virtualRow.index];
 
-                    return (
-                        <div
-                            key={virtualRow.key}
-                            className={`virtual-table-row ${onRowClick ? 'clickable' : ''}`}
-                            style={{
-                                transform: `translateY(${virtualRow.start}px)`,
-                                height: `${virtualRow.size}px`,
-                            }}
-                            onClick={() => onRowClick?.(row, virtualRow.index)}
-                        >
-                            {virtualColumns.map((virtualColumn) => {
-                                const header = headers[virtualColumn.index];
-                                const cellValue = row[header];
+                        return (
+                            <div
+                                key={virtualRow.key}
+                                className={`virtual-table-row ${onRowClick ? 'clickable' : ''}`}
+                                style={{
+                                    transform: `translateY(${virtualRow.start}px)`,
+                                    width: `${totalTableWidth}px`,
+                                    height: `${virtualRow.size}px`,
+                                }}
+                                onClick={() => onRowClick?.(row, virtualRow.index)}
+                            >
+                                {virtualColumns.map((virtualColumn) => {
+                                    const header = headers[virtualColumn.index];
+                                    const cellValue = row[header];
 
-                                return (
-                                    <div
-                                        key={virtualColumn.key}
-                                        className="virtual-table-cell"
-                                        style={{
-                                            position: useFullWidth ? 'relative' : 'absolute',
-                                            left: useFullWidth ? 'auto' : 0,
-                                            transform: useFullWidth ? 'none' : `translateX(${virtualColumn.start}px)`,
-                                            width: `${virtualColumn.size}px`,
-                                        }}
-                                    >
-                                        {cellValue}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    );
-                })}
+                                    return (
+                                        <div
+                                            key={virtualColumn.key}
+                                            className="virtual-table-cell"
+                                            style={{
+                                                position: 'absolute',
+                                                left: 0,
+                                                transform: `translateX(${virtualColumn.start}px)`,
+                                                width: `${virtualColumn.size}px`,
+                                            }}
+                                        >
+                                            {cellValue}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
         </div>
     );
 }
-
-
 .virtual-table-container {
     width: 100%;
     height: 100%;
@@ -155,8 +157,12 @@ export function VirtualTable({
     background: #fff;
 }
 
+.virtual-table-content {
+    position: relative;
+}
+
 .virtual-table-header {
-    display: flex;
+    display: block;
     position: sticky;
     top: 0;
     left: 0;
@@ -190,8 +196,7 @@ export function VirtualTable({
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    display: flex;
+    display: block;
     border-bottom: 1px solid #eee;
     transition: background-color 0.15s ease;
 }
@@ -220,7 +225,7 @@ export function VirtualTable({
     border-right: none;
 }
 
-/* Scrollbar styling (opcjonalne) */
+/* Scrollbar styling */
 .virtual-table-container::-webkit-scrollbar {
     width: 12px;
     height: 12px;
@@ -239,7 +244,7 @@ export function VirtualTable({
     background: #555;
 }
 
-/* Dark mode support (opcjonalne) */
+/* Dark mode support */
 @media (prefers-color-scheme: dark) {
 .virtual-table-container {
         background: #1a1a1a;
