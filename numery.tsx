@@ -1,290 +1,283 @@
-import {useParams} from 'react-router-dom';
-import {selectorFamily, Suspense, useRecoilValue} from 'recoil';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useRef, useState, useEffect } from 'react';
+import './VirtualTable.css';
 
-// ============================================
-// TYPES
-// ============================================
-
-interface OrchestratorConfig<TMain, TDerived, TFinal> {
-    mainRequests: Array<{
-        key: string;
-        url: (id: string, type: string) => string;
-        method?: 'GET' | 'POST';
-        body?: (id: string, type: string) => any;
-    }>;
-
-    derivedRequestsMapper: (
-        mainResponses: Record<string, TMain>,
-        id: string,
-        type: string
-    ) => Array<{
-        key: string;
-        url: string;
-        method?: 'GET' | 'POST';x
-        body?: any;
-        priority?: number;
-    }>;
-
-    finalMapper?: (
-        mainResponses: Record<string, TMain>,
-        derivedResponses: Record<string, TDerived>,
-        id: string,
-        type: string
-    ) => TFinal;
-
-    concurrency?: number;
-    batchDelay?: number;
+interface VirtualTableProps {
+    data: Record<string, any>[];
+    headers: string[];
+    onRowClick?: (row: Record<string, any>, index: number) => void;
+    minColumnWidth?: number;
+    rowHeight?: number;
 }
 
-interface OrchestratorParams {
-    id: string;
-    type: string;
-}
+export function VirtualTable({
+                                 data,
+                                 headers,
+                                 onRowClick,
+                                 minColumnWidth = 150,
+                                 rowHeight = 40
+                             }: VirtualTableProps) {
+    const parentRef = useRef<HTMLDivElement>(null);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
-// ============================================
-// CORE ENGINE
-// ============================================
-
-class OrchestratorEngine<TMain, TDerived, TFinal> {
-    private config: OrchestratorConfig<TMain, TDerived, TFinal>;
-    private id: string;
-    private type: string;
-
-    constructor(
-        config: OrchestratorConfig<TMain, TDerived, TFinal>,
-        id: string,
-        type: string
-    ) {
-        this.config = config;
-        this.id = id;
-        this.type = type;
-    }
-
-    async execute(): Promise<TFinal> {
-        const {
-            mainRequests,
-            derivedRequestsMapper,
-            finalMapper,
-            concurrency = 3,
-            batchDelay = 30,
-        } = this.config;
-
-        // ============================================
-        // PHASE 1: Main requests (full parallel)
-        // ============================================
-
-        const mainPromises = mainRequests.map(async (req) => {
-            const url = req.url(this.id, this.type);
-            const body = req.body ? req.body(this.id, this.type) : undefined;
-
-            const response = await fetch(url, {
-                method: req.method || 'GET',
-                headers: {'Content-Type': 'application/json'},
-                body: body ? JSON.stringify(body) : undefined,
-            });
-
-            if (!response.ok) {
-                throw new Error(`${req.key} failed: ${response.status}`);
-            }
-
-            return {key: req.key, data: await response.json()};
-        });
-
-        const mainResults = await Promise.all(mainPromises);
-        const mainData = mainResults.reduce(
-            (acc, {key, data}) => ({...acc, [key]: data}),
-            {} as Record<string, TMain>
-        );
-
-        // ============================================
-        // PHASE 2: Derive requests config
-        // ============================================
-
-        const derivedConfigs = derivedRequestsMapper(mainData, this.id, this.type);
-
-        if (derivedConfigs.length === 0) {
-            return (finalMapper
-                    ? finalMapper(mainData, {} as Record<string, TDerived>, this.id, this.type)
-                    : {main: mainData, derived: {}} as TFinal
-            );
-        }
-
-        // Sort by priority (1 = highest)
-        const sortedConfigs = [...derivedConfigs].sort(
-            (a, b) => (a.priority || 999) - (b.priority || 999)
-        );
-
-        // ============================================
-        // PHASE 3: Batched derived requests
-        // ============================================
-
-        const derivedData: Record<string, TDerived> = {};
-
-        for (let i = 0; i < sortedConfigs.length; i += concurrency) {
-            const batch = sortedConfigs.slice(i, i + concurrency);
-
-            const batchPromises = batch.map(async (req) => {
-                const response = await fetch(req.url, {
-                    method: req.method || 'GET',
-                    headers: {'Content-Type': 'application/json'},
-                    body: req.body ? JSON.stringify(req.body) : undefined,
+    useEffect(() => {
+        const updateDimensions = () => {
+            if (parentRef.current) {
+                const rect = parentRef.current.getBoundingClientRect();
+                setDimensions({
+                    width: rect.width,
+                    height: rect.height
                 });
-
-                if (!response.ok) {
-                    throw new Error(`${req.key} failed: ${response.status}`);
-                }
-
-                return {key: req.key, data: await response.json()};
-            });
-
-            const batchResults = await Promise.all(batchPromises);
-            batchResults.forEach(({key, data}) => {
-                derivedData[key] = data;
-            });
-
-            // Micro-delay between batches
-            if (i + concurrency < sortedConfigs.length) {
-                await new Promise(resolve => setTimeout(resolve, batchDelay));
             }
+        };
+
+        updateDimensions();
+        const resizeObserver = new ResizeObserver(updateDimensions);
+        if (parentRef.current) {
+            resizeObserver.observe(parentRef.current);
         }
 
-        // ============================================
-        // PHASE 4: Final mapping
-        // ============================================
+        return () => resizeObserver.disconnect();
+    }, []);
 
-        return finalMapper
-            ? finalMapper(mainData, derivedData, this.id, this.type)
-            : ({main: mainData, derived: derivedData} as TFinal);
-    }
-}
+    const getColumnWidth = () => {
+        if (dimensions.width === 0) return minColumnWidth;
+        const calculatedWidth = dimensions.width / headers.length;
+        return Math.max(calculatedWidth, minColumnWidth);
+    };
 
-// ============================================
-// RECOIL SELECTOR - AUTOMATIC EXECUTION
-// ============================================
+    const columnWidth = getColumnWidth();
 
-interface SelectorKey<TMain, TDerived, TFinal> {
-    config: OrchestratorConfig<TMain, TDerived, TFinal>;
-    id: string;
-    type: string;
-}
+    const rowVirtualizer = useVirtualizer({
+        count: data.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => rowHeight,
+        overscan: 5,
+    });
 
-export const orchestratorSelector = selectorFamily<any, SelectorKey<any, any, any>>({
-    key: 'orchestratorSelector',
-    get: ({config, id, type}) => async () => {
-        const engine = new OrchestratorEngine(config, id, type);
-        return await engine.execute();
-    },
-});
+    const columnVirtualizer = useVirtualizer({
+        horizontal: true,
+        count: headers.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => columnWidth,
+        overscan: 3,
+    });
 
-// ============================================
-// MAIN ORCHESTRATOR COMPONENT
-// ============================================
+    const virtualRows = rowVirtualizer.getVirtualItems();
+    const virtualColumns = columnVirtualizer.getVirtualItems();
 
-interface OrchestratorProps<TMain, TDerived, TFinal> {
-    config: OrchestratorConfig<TMain, TDerived, TFinal>;
-    children: (data: TFinal, id: string, type: string) => React.ReactNode;
-    fallback?: React.ReactNode;
-}
+    const totalTableWidth = columnVirtualizer.getTotalSize();
+    const useFullWidth = totalTableWidth < dimensions.width;
 
-function OrchestratorInner<TMain, TDerived, TFinal>({
-                                                        config,
-                                                        children,
-                                                    }: Omit<OrchestratorProps<TMain, TDerived, TFinal>, 'fallback'>) {
-    const {id, type} = useParams<OrchestratorParams>();
-
-    if (!id || !type) {
-        throw new Error('Missing id or type in URL params');
-    }
-
-    // Immediate execution on render
-    const data = useRecoilValue(
-        orchestratorSelector({config, id, type})
-    );
-
-    return <>{children(data, id, type)}</>;
-}
-
-export function Orchestrator<TMain, TDerived, TFinal>(
-    props: OrchestratorProps<TMain, TDerived, TFinal>
-) {
     return (
-        <Suspense fallback={props.fallback || <div>⚡ Ładowanie...</div>}>
-            <OrchestratorInner {...props} />
-        </Suspense>
+        <div ref={parentRef} className="virtual-table-container">
+            {/* Header */}
+            <div
+                className="virtual-table-header"
+                style={{
+                    width: useFullWidth ? '100%' : `${totalTableWidth}px`,
+                }}
+            >
+                {virtualColumns.map((virtualColumn) => {
+                    const header = headers[virtualColumn.index];
+                    return (
+                        <div
+                            key={virtualColumn.key}
+                            className="virtual-table-header-cell"
+                            style={{
+                                position: useFullWidth ? 'relative' : 'absolute',
+                                left: useFullWidth ? 'auto' : 0,
+                                transform: useFullWidth ? 'none' : `translateX(${virtualColumn.start}px)`,
+                                width: `${virtualColumn.size}px`,
+                                height: `${rowHeight}px`,
+                            }}
+                        >
+                            {header}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Body */}
+            <div
+                className="virtual-table-body"
+                style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: useFullWidth ? '100%' : `${totalTableWidth}px`,
+                }}
+            >
+                {virtualRows.map((virtualRow) => {
+                    const row = data[virtualRow.index];
+
+                    return (
+                        <div
+                            key={virtualRow.key}
+                            className={`virtual-table-row ${onRowClick ? 'clickable' : ''}`}
+                            style={{
+                                transform: `translateY(${virtualRow.start}px)`,
+                                height: `${virtualRow.size}px`,
+                            }}
+                            onClick={() => onRowClick?.(row, virtualRow.index)}
+                        >
+                            {virtualColumns.map((virtualColumn) => {
+                                const header = headers[virtualColumn.index];
+                                const cellValue = row[header];
+
+                                return (
+                                    <div
+                                        key={virtualColumn.key}
+                                        className="virtual-table-cell"
+                                        style={{
+                                            position: useFullWidth ? 'relative' : 'absolute',
+                                            left: useFullWidth ? 'auto' : 0,
+                                            transform: useFullWidth ? 'none' : `translateX(${virtualColumn.start}px)`,
+                                            width: `${virtualColumn.size}px`,
+                                        }}
+                                    >
+                                        {cellValue}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
-// ============================================
-// EXAMPLE TYPES
-// ============================================
 
-interface MainResponse {
-    id: string;
-    dependencies: string[];
-    metadata: any;
+.virtual-table-container {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    position: relative;
+    background: #fff;
 }
 
-interface DerivedResponse {
-    itemId: string;
-    result: any;
+.virtual-table-header {
+    display: flex;
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    background: #f5f5f5;
+    border-bottom: 2px solid #ddd;
 }
 
-interface FinalData {
-    orderId: string;
-    orderType: string;
-    mainData: MainResponse;
-    dependenciesData: DerivedResponse[];
-    timestamp: number;
+.virtual-table-header-cell {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-weight: 600;
+    font-size: 14px;
+    border-right: 1px solid #ddd;
+    background: #f5f5f5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-// ============================================
-// EXAMPLE CONFIGURATION
-// ============================================
+.virtual-table-header-cell:last-child {
+    border-right: none;
+}
 
-const exampleConfig: OrchestratorConfig<MainResponse, DerivedResponse, FinalData> = {
-    // Main requests - execute in parallel
-    mainRequests: [
-        {
-            key: 'order',
-            url: (id, type) => `https://foo.pl/mas/${id}?type=${type}`,
-            method: 'GET',
-        },
-        {
-            key: 'additional',
-            url: (id, type) => `https://foo.pl/additional/${id}`,
-            method: 'POST',
-            body: (id, type) => ({itemId: id, itemType: type}),
-        },
-    ],
+.virtual-table-body {
+    position: relative;
+}
 
-    // Map main responses => derived requests
-    derivedRequestsMapper: (mainResponses, id, type) => {
-        const order = mainResponses.order;
+.virtual-table-row {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    display: flex;
+    border-bottom: 1px solid #eee;
+    transition: background-color 0.15s ease;
+}
 
-        return order.dependencies.map((depId, index) => ({
-            key: `dep_${depId}`,
-            url: `https://foo.pl/dependent/${depId}`,
-            method: 'POST',
-            body: {
-                orderId: order.id,
-                itemId: id,
-                itemType: type,
-                metadata: order.metadata,
-            },
-            priority: index < 5 ? 1 : 2, // First 5 have priority
-        }));
-    },
+.virtual-table-row.clickable {
+    cursor: pointer;
+}
 
-    // Final data transformation
-    finalMapper: (mainResponses, derivedResponses, id, type) => ({
-        orderId: id,
-        orderType: type,
-        mainData: mainResponses.order,
-        dependenciesData: Object.values(derivedResponses),
-        timestamp: Date.now(),
-    }),
+.virtual-table-row.clickable:hover {
+    background-color: #f9f9f9;
+}
 
-    // Performance settings
-    concurrency: 3,
-    batchDelay: 30,
-};
+.virtual-table-cell {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    height: 100%;
+    border-right: 1px solid #eee;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+}
+
+.virtual-table-cell:last-child {
+    border-right: none;
+}
+
+/* Scrollbar styling (opcjonalne) */
+.virtual-table-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.virtual-table-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.virtual-table-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 6px;
+}
+
+.virtual-table-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Dark mode support (opcjonalne) */
+@media (prefers-color-scheme: dark) {
+.virtual-table-container {
+        background: #1a1a1a;
+    }
+
+.virtual-table-header {
+        background: #2a2a2a;
+        border-bottom-color: #444;
+    }
+
+.virtual-table-header-cell {
+        background: #2a2a2a;
+        border-right-color: #444;
+        color: #fff;
+    }
+
+.virtual-table-row {
+        border-bottom-color: #333;
+    }
+
+.virtual-table-row.clickable:hover {
+        background-color: #252525;
+    }
+
+.virtual-table-cell {
+        border-right-color: #333;
+        color: #e0e0e0;
+    }
+
+.virtual-table-container::-webkit-scrollbar-track {
+        background: #2a2a2a;
+    }
+
+.virtual-table-container::-webkit-scrollbar-thumb {
+        background: #555;
+    }
+
+.virtual-table-container::-webkit-scrollbar-thumb:hover {
+        background: #777;
+    }
+}
