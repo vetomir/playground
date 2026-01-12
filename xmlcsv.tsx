@@ -1,19 +1,27 @@
-// Konwersja string[][] na CSV
+// Zoptymalizowane CSV - dla dużych danych
 export function arrayToCSV(data: string[][], delimiter: string = ','): string {
-    return data
-        .map(row =>
-            row.map(cell => {
-                // Escapowanie komórek zawierających delimiter, cudzysłowy lub nowe linie
-                if (cell.includes(delimiter) || cell.includes('"') || cell.includes('\n')) {
-                    return `"${cell.replace(/"/g, '""')}"`;
-                }
-                return cell;
-            }).join(delimiter)
-        )
-        .join('\n');
+    const parts: string[] = [];
+    const needsEscape = new RegExp(`[${delimiter}"\\n]`);
+
+    for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        const cells: string[] = [];
+
+        for (let j = 0; j < row.length; j++) {
+            const cell = row[j];
+            if (needsEscape.test(cell)) {
+                cells.push(`"${cell.replace(/"/g, '""')}"`);
+            } else {
+                cells.push(cell);
+            }
+        }
+        parts.push(cells.join(delimiter));
+    }
+
+    return parts.join('\n');
 }
 
-// Konwersja string[][] na XML
+// Zoptymalizowane XML - array builder zamiast konkatenacji
 export function arrayToXML(
     data: string[][],
     options: {
@@ -30,85 +38,34 @@ export function arrayToXML(
         headerRow = false
     } = options;
 
-    const escapeXML = (str: string): string => {
-        return str
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
+    const xmlChars: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&apos;'
     };
 
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootElement}>\n`;
+    const escapeXML = (str: string): string => {
+        return str.replace(/[&<>"']/g, char => xmlChars[char]);
+    };
 
-    data.forEach((row, rowIndex) => {
-        xml += `  <${rowElement}`;
+    const parts: string[] = [`<?xml version="1.0" encoding="UTF-8"?>\n<${rootElement}>\n`];
 
-        if (headerRow && rowIndex === 0) {
-            xml += ` type="header"`;
+    for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        const isHeader = headerRow && i === 0;
+
+        parts.push(`  <${rowElement}${isHeader ? ' type="header"' : ''}>\n`);
+
+        for (let j = 0; j < row.length; j++) {
+            parts.push(`    <${cellElement} index="${j}">${escapeXML(row[j])}</${cellElement}>\n`);
         }
 
-        xml += '>\n';
-
-        row.forEach((cell, cellIndex) => {
-            xml += `    <${cellElement} index="${cellIndex}">${escapeXML(cell)}</${cellElement}>\n`;
-        });
-
-        xml += `  </${rowElement}>\n`;
-    });
-
-    xml += `</${rootElement}>`;
-
-    return xml;
-}
-
-// XML z nazwanymi kolumnami (pierwszy wiersz = nagłówki)
-export function arrayToXMLWithHeaders(
-    data: string[][],
-    options: {
-        rootElement?: string;
-        rowElement?: string;
-    } = {}
-): string {
-    if (data.length === 0) {
-        return `<?xml version="1.0" encoding="UTF-8"?>\n<${options.rootElement || 'data'}/>`;
+        parts.push(`  </${rowElement}>\n`);
     }
 
-    const {
-        rootElement = 'data',
-        rowElement = 'row'
-    } = options;
+    parts.push(`</${rootElement}>`);
 
-    const escapeXML = (str: string): string => {
-        return str
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
-    };
-
-    const sanitizeTagName = (str: string): string => {
-        return str
-            .replace(/[^a-zA-Z0-9_-]/g, '_')
-            .replace(/^[0-9]/, '_$&');
-    };
-
-    const headers = data[0].map(sanitizeTagName);
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootElement}>\n`;
-
-    for (let i = 1; i < data.length; i++) {
-        xml += `  <${rowElement}>\n`;
-
-        data[i].forEach((cell, cellIndex) => {
-            const tagName = headers[cellIndex] || `column_${cellIndex}`;
-            xml += `    <${tagName}>${escapeXML(cell)}</${tagName}>\n`;
-        });
-
-        xml += `  </${rowElement}>\n`;
-    }
-
-    xml += `</${rootElement}>`;
-
-    return xml;
+    return parts.join('');
 }
