@@ -69,3 +69,36 @@ export function arrayToXML(
 
     return parts.join('');
 }
+
+
+export function downloadCSV(data: string[][], filename: string = 'data.csv'): void {
+    const csvContent = arrayToCSV(data);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+
+    // Cleanup
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+export function downloadXML(data: string[][], filename: string = 'data.xml'): void {
+    const xmlContent = arrayToXML(data);
+    const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
