@@ -1,7 +1,7 @@
-.abc {
+.tooltip {
+  overflow: hidden;
   pointer-events: none;
   position: fixed;
-  right: 0;
   bottom: -50px;
   min-height: 30px;
   height: fit-content;
@@ -9,7 +9,9 @@
   width: fit-content;
   transition: opacity 100ms;
   z-index: 100000;
-  color: #fff;
+  color: black;
+  left: 0;
+  top: 0;
 
   font-size: 14px;
   white-space: nowrap;
@@ -18,19 +20,23 @@
   justify-content: center;
   align-items: center;
   font-weight: normal;
-  background: #111112a0;
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-radius: 0 15px 15px 15px;
-  overflow: hidden;
+  background: rgba(237, 237, 237, 0.8);
+  border-radius: 0 30px 30px 30px;
 
   opacity: 0;
-  animation: fadeIn 300ms ease forwards;
+  animation: fadeIn .5s ease forwards;
   animation-delay: 100ms;
-
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 0 1px 1px rgba(0, 0, 0, 0.2), 0 0 20px -10px rgba(0, 0, 0, .5);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  word-wrap: break-word;
+  will-change: transform;
+  *{
+    text-shadow: 0 0 2px white;
+  }
 
   &.text {
-    padding: 10px 20px;
+    padding: 15px ;
   }
 
   &.raw {
@@ -72,7 +78,8 @@
     }
   }
 }
-.toolTipWrapper{
+
+.toolTipWrapper {
   color: inherit;
   font-size: inherit;
 }

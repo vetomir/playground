@@ -1,45 +1,46 @@
-import React, {useMemo} from 'react'
-import styles from '@/app/component/tooltip/tooltip.module.css'
+import React, { useMemo } from "react";
+import styles from "./Tooltip.module.css";
 import classNames from "classnames";
 
 type TooltipProps = {
-    text: string | string[] | React.ReactNode
-}
+    text: string | string[] | React.ReactNode;
+    id: string;
+};
 
-const Tooltip: React.FC<TooltipProps> = ({text}) => {
-
+const Tooltip: React.FC<TooltipProps> = ({ text, id }) => {
     const className = useMemo(() => {
-        if (Array.isArray(text))
-            return styles.list
+        if (Array.isArray(text)) return styles.list;
 
-        if (typeof text !== 'string')
-            return styles.raw
+        if (typeof text !== "string") return styles.raw;
 
-        return styles.text
-    }, [text])
+        return styles.text;
+    }, [text]);
 
     const content = useMemo(() => {
-            if (typeof text === 'string')
-                return <div>{text}</div>
+        if (typeof text === "string") return <div>{text}</div>;
 
-            if (Array.isArray(text))
-                return (
-                    <ul>
-                        {text.map((x: string, index: number) => (
-                            <li key={`tooltip-list-${index}`}>{x}</li>
-                        ))}
-                    </ul>
-                )
+        if (Array.isArray(text))
+            return (
+                <ul>
+                    {text.map((x: string, index: number) => (
+                        <li key={`tooltip-list-${index}`}>{x}</li>
+                    ))}
+                </ul>
+            );
 
-            return text
-        }, [text]
-    )
+        return text;
+    }, [text]);
 
     return (
-        <div id="tooltip" className={classNames(styles.abc, className)}>
+        <div
+            id={id}
+            className={classNames(styles.tooltip, className)}
+            role="tooltip"
+            aria-hidden="false"
+        >
             {content}
         </div>
-    )
-}
+    );
+};
 
-export default Tooltip
+export default Tooltip;

@@ -1,50 +1,83 @@
-import {useAtom} from 'jotai'
-import {useEffect} from 'react'
-import styles from '@/app/component/tooltip/tooltip.module.css'
-import Tooltip from './Tooltip';
-import {tooltipAtom} from "@/app/atom/atoms";
+"use client";
 
-
+import { useAtom } from "jotai";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import styles from "./Tooltip.module.css";
+import Tooltip from "./Tooltip";
+import { tooltipAtom } from "@/app/atom/atoms";
 
 export default function TooltipCore() {
-    const [tooltip] = useAtom(tooltipAtom)
+    const [tooltip] = useAtom(tooltipAtom);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     useEffect(() => {
         if (tooltip) {
+            let animationFrameId: number;
+
             const handleMouseMove = (event: MouseEvent) => {
-                const tooltipElement = document.getElementById('tooltip')
-                if (tooltipElement) {
-                    const x = event.clientX
-                    const y = event.clientY
-
-                    const tooltipWidth = tooltipElement.offsetWidth
-                    const windowWidth = window.innerWidth
-                    const tooltipLeft =
-                        x + tooltipWidth + 10 > windowWidth
-                            ? x - tooltipWidth
-                            : x
-
-                    if (x + tooltipWidth + 10 > windowWidth) {
-                        tooltipElement.classList.add(styles.left)
-                    } else {
-                        tooltipElement.classList.remove(styles.left)
-                    }
-
-                    tooltipElement.style.left = `${tooltipLeft}px`
-                    tooltipElement.style.top = `${y}px`
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
                 }
-            }
 
-            document.addEventListener('mousemove', handleMouseMove)
+                animationFrameId = requestAnimationFrame(() => {
+                    const tooltipElement = document.getElementById("tooltip");
+                    if (tooltipElement) {
+                        const x = event.clientX;
+                        const y = event.clientY;
+                        const tooltipRect = tooltipElement.getBoundingClientRect();
+                        const windowWidth = window.innerWidth;
+                        const windowHeight = window.innerHeight;
+
+                        const offset = 0;
+
+                        // Sprawdź pozycję w poziomie (lewo/prawo)
+                        let tooltipLeft = x + offset;
+                        const isLeft = x + tooltipRect.width + offset > windowWidth;
+
+                        if (isLeft) {
+                            tooltipLeft = x - tooltipRect.width - offset;
+                        }
+
+                        // Sprawdź pozycję w pionie (góra/dół)
+                        let tooltipTop = y + offset;
+                        const isTop = y + tooltipRect.height + offset > windowHeight;
+
+                        if (isTop) {
+                            tooltipTop = y - tooltipRect.height - offset;
+                        }
+
+                        // Dodaj/usuń klasy CSS
+                        tooltipElement.classList.toggle(styles.left, isLeft);
+                        tooltipElement.classList.toggle(styles.top, isTop);
+
+                        tooltipElement.style.transform = `translate(${tooltipLeft}px, ${tooltipTop}px)`;
+                        tooltipElement.style.left = "0px";
+                        tooltipElement.style.top = "0px";
+                    }
+                });
+            };
+
+            document.addEventListener("mousemove", handleMouseMove);
 
             return () => {
-                document.removeEventListener('mousemove', handleMouseMove)
-            }
+                document.removeEventListener("mousemove", handleMouseMove);
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+            };
         }
-    }, [tooltip])
+    }, [tooltip]);
 
-    if (!tooltip || typeof tooltip !== 'object' || !('text' in tooltip))
-        return null
+    if (!mounted || !tooltip || typeof tooltip !== "object" || !("text" in tooltip))
+        return null;
 
-    return <Tooltip text={tooltip.text as string} />
+    return createPortal(
+        <Tooltip text={tooltip.text as string} id="tooltip" />,
+        document.body
+    );
 }

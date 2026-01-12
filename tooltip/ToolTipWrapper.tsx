@@ -1,101 +1,93 @@
 "use client";
 
-import React, {ComponentType, forwardRef, ReactNode, useEffect, useRef,} from "react";
+import React, {ComponentPropsWithoutRef, ElementType, useCallback, useEffect, useRef,} from "react";
 import {useSetAtom} from "jotai";
-import {JSX} from "react/jsx-runtime";
-import styles from '@/app/component/tooltip/tooltip.module.css'
+import styles from "./Tooltip.module.css";
 import classNames from "classnames";
-import IntrinsicElements = JSX.IntrinsicElements;
 import {tooltipAtom} from "@/app/atom/atoms";
 
-export type TooltipContent =
-    | string
-    | string[]
-    | ReactNode
-    | Record<string, unknown>;
+export type TooltipContent = string | string[] | React.ReactNode | Record<string, unknown>;
 
-type TooltipType = {
+type PolymorphicComponentProps<T extends ElementType, Props = object> = Props &
+    Omit<ComponentPropsWithoutRef<T>, keyof Props> & {
+    as?: T;
     text?: TooltipContent;
     href?: string;
-    Type?: keyof IntrinsicElements | ComponentType | Element;
-    children?: React.ReactNode;
-    className?: string;
-    [key: string]: unknown;
+    delay?: number;
 };
 
-// Komponent pomocniczy do obsługi różnych typów elementów
-const ForwardedComponent = forwardRef<
-    HTMLElement,
-    {
-        Component: ComponentType;
-        props: Record<string, unknown>;
-        children: ReactNode;
-    }
->(({Component, props, children}, ref) => {
-    const componentProps = {...props, ref} as Record<string, unknown>;
-    return React.createElement(Component, componentProps, children);
-});
-ForwardedComponent.displayName = "ForwardedComponent";
+type TooltipProps<T extends ElementType = "button"> = PolymorphicComponentProps<T>;
 
-export default function ToolTipWrapper({
-                                           text,
-                                           href = "",
-                                           Type = "button" as keyof JSX.IntrinsicElements,
-                                           children,
-                                           className,
-                                           ...props
-                                       }: TooltipType) {
+export default function ToolTipWrapper<T extends ElementType = "button">(
+    {
+        text,
+        href,
+        as,
+        children,
+        className,
+        delay = 0,
+        ...props
+    }: TooltipProps<T>) {
     const setTooltip = useSetAtom(tooltipAtom);
-    const elementRef = useRef<HTMLElement>(null);
+    const elementRef = useRef<HTMLElement | null>(null);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const handleMouseEnter = useCallback(() => {
+        if (text) {
+            timeoutRef.current = setTimeout(() => {
+                setTooltip({text});
+            }, delay);
+        }
+    }, [text, setTooltip, delay]);
+
+    const handleMouseLeave = useCallback(() => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+        setTooltip(null);
+    }, [setTooltip]);
+
+    const handleFocus = useCallback(() => {
+        if (text) setTooltip({text});
+    }, [text, setTooltip]);
+
+    const handleBlur = useCallback(() => {
+        setTooltip(null);
+    }, [setTooltip]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (
-                elementRef.current &&
-                !elementRef.current.contains(event.target as Node)
-            ) {
+            if (elementRef.current && !elementRef.current.contains(event.target as Node)) {
                 setTooltip(null);
             }
         };
 
         document.addEventListener("click", handleClickOutside);
-
         return () => {
             document.removeEventListener("click", handleClickOutside);
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
         };
     }, [setTooltip]);
 
-    const Component = href ? "a" : Type;
+    const setRef = useCallback((node: HTMLElement | null) => {
+        elementRef.current = node;
+    }, []);
 
-    // Obsługa elementów HTML (string)
-    if (typeof Component === "string") {
-        return React.createElement(
-            Component,
-            {
-                ...(href ? {href} : {}),
-                className: classNames(styles.toolTipWrapper, className),
-                onMouseEnter: () => text && setTooltip({text}),
-                onMouseLeave: () => setTooltip(null),
-                ref: elementRef,
-                ...props,
-            },
-            children
-        );
-    }
+    const Component = (href ? "a" : as || "button") as ElementType;
 
-    return (
-        <ForwardedComponent
-            Component={Component as ComponentType}
-            props={{
-                ...(href ? {href} : {}),
-                className: classNames(styles.toolTipWrapper, className),
-                onMouseEnter: () => text && setTooltip({text: text}),
-                onMouseLeave: () => setTooltip(null),
-                ...props,
-            }}
-            ref={elementRef}
-        >
-            {children}
-        </ForwardedComponent>
-    );
+    const componentProps = {
+        ...(href && {href}),
+        className: classNames(styles.toolTipWrapper, className),
+        onMouseEnter: handleMouseEnter,
+        onMouseLeave: handleMouseLeave,
+        onFocus: handleFocus,
+        onBlur: handleBlur,
+        "aria-describedby": text ? "tooltip" : undefined,
+        ...props,
+    };
+
+    return <Component {...componentProps} ref={setRef}>{children}</Component>;
 }
