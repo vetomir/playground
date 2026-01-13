@@ -102,3 +102,99 @@ export function downloadXML(data: string[][], filename: string = 'data.xml'): vo
     URL.revokeObjectURL(url);
 }
 
+type JsonObject = Record<string, any>;
+
+// Konwersja object[] na CSV
+function objectArrayToCSV(data: JsonObject[], delimiter: string = ','): string {
+    if (data.length === 0) return '';
+
+    const headers = Object.keys(data[0]);
+    const needsEscape = new RegExp(`[${delimiter}"\n]`);
+
+    const escapeCellValue = (value: any): string => {
+        const str = value?.toString() ?? '';
+        if (needsEscape.test(str)) {
+            return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+    };
+
+    const parts: string[] = [];
+    parts.push(headers.map(escapeCellValue).join(delimiter));
+
+    for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        const cells: string[] = [];
+
+        for (let j = 0; j < headers.length; j++) {
+            cells.push(escapeCellValue(row[headers[j]]));
+        }
+
+        parts.push(cells.join(delimiter));
+    }
+
+    return parts.join('\n');
+}
+
+// Konwersja object[] na XML
+function objectArrayToXML(data: JsonObject[]): string {
+    const xmlChars: Record<string, string> = {
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;'
+    };
+
+    const escapeXML = (str: string): string => {
+        return str.replace(/[&<>"']/g, char => xmlChars[char]);
+    };
+
+    const sanitizeTagName = (str: string): string => {
+        return str.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^[0-9]/, '_$&');
+    };
+
+    const parts: string[] = ['<?xml version="1.0" encoding="UTF-8"?>\n<data>\n'];
+
+    for (let i = 0; i < data.length; i++) {
+        parts.push('  <item>\n');
+
+        for (const [key, value] of Object.entries(data[i])) {
+            const tagName = sanitizeTagName(key);
+            const val = value?.toString() ?? '';
+            parts.push(`    <${tagName}>${escapeXML(val)}</${tagName}>\n`);
+        }
+
+        parts.push('  </item>\n');
+    }
+
+    parts.push('</data>');
+    return parts.join('');
+}
+
+// Główne funkcje do pobierania plików
+export function downloadCSVFromObjects(data: JsonObject[], filename: string = 'data.csv'): void {
+    const content = objectArrayToCSV(data);
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+export function downloadXMLFromObjects(data: JsonObject[], filename: string = 'data.xml'): void {
+    const content = objectArrayToXML(data);
+    const blob = new Blob([content], { type: 'application/xml;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
