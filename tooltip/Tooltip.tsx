@@ -1,46 +1,107 @@
-import React, { useMemo } from "react";
-import styles from "./Tooltip.module.css";
-import classNames from "classnames";
+"use client";
 
-type TooltipProps = {
-    text: string | string[] | React.ReactNode;
-    id: string;
+import React, {
+    useCallback,
+    useEffect,
+    useRef,
+    ComponentPropsWithoutRef,
+    ElementType,
+} from "react";
+import classNames from "classnames";
+import { useTooltip, TooltipContent } from "./TooltipContext";
+
+type PolymorphicComponentProps<T extends ElementType, Props = object> = Props &
+    Omit<ComponentPropsWithoutRef<T>, keyof Props> & {
+    as?: T;
+    text?: TooltipContent;
+    href?: string;
+    delay?: number;
 };
 
-const Tooltip: React.FC<TooltipProps> = ({ text, id }) => {
-    const className = useMemo(() => {
-        if (Array.isArray(text)) return styles.list;
+type TooltipProps<T extends ElementType = "button"> = PolymorphicComponentProps<T>;
 
-        if (typeof text !== "string") return styles.raw;
+export default function ToolTip<T extends ElementType = "button">({
+                                                                             text,
+                                                                             href,
+                                                                             as,
+                                                                             children,
+                                                                             className,
+                                                                             delay = 300,
+                                                                             ...props
+                                                                         }: TooltipProps<T>) {
+    const { showTooltip, hideTooltip } = useTooltip();
+    const elementRef = useRef<HTMLElement | null>(null);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-        return styles.text;
-    }, [text]);
+    const handleMouseEnter = useCallback(() => {
+        if (!text) return;
 
-    const content = useMemo(() => {
-        if (typeof text === "string") return <div>{text}</div>;
+        timeoutRef.current = setTimeout(() => {
+            showTooltip({ text });
+        }, delay);
+    }, [text, showTooltip, delay]);
 
-        if (Array.isArray(text))
-            return (
-                <ul>
-                    {text.map((x: string, index: number) => (
-                        <li key={`tooltip-list-${index}`}>{x}</li>
-                    ))}
-                </ul>
-            );
+    const handleMouseLeave = useCallback(() => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+        hideTooltip();
+    }, [hideTooltip]);
 
-        return text;
-    }, [text]);
+    const handleFocus = useCallback(() => {
+        if (text) {
+            showTooltip({ text });
+        }
+    }, [text, showTooltip]);
+
+    const handleBlur = useCallback(() => {
+        hideTooltip();
+    }, [hideTooltip]);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (elementRef.current && !elementRef.current.contains(event.target as Node)) {
+                hideTooltip();
+            }
+        };
+
+        document.addEventListener("click", handleClickOutside);
+
+        return () => {
+            document.removeEventListener("click", handleClickOutside);
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
+        };
+    }, [hideTooltip]);
+
+    const setRef = useCallback((node: HTMLElement | null) => {
+        elementRef.current = node;
+    }, []);
+
+    const Component = (href ? "a" : as || "button") as ElementType;
+
+    const componentProps = {
+        ...(href && { href }),
+        className: classNames("tooltip-wrapper", className),
+        onMouseEnter: handleMouseEnter,
+        onMouseLeave: handleMouseLeave,
+        onFocus: handleFocus,
+        onBlur: handleBlur,
+        "aria-describedby": text ? "tooltip" : undefined,
+        ...props,
+    };
 
     return (
-        <div
-            id={id}
-            className={classNames(styles.tooltip, className)}
-            role="tooltip"
-            aria-hidden="false"
-        >
-            {content}
-        </div>
+        <>
+            <Component {...componentProps} ref={setRef}>{children}</Component>
+            <style jsx>{`
+        .tooltip-wrapper {
+          display: inline-block;
+          cursor: pointer;
+        }
+      `}</style>
+        </>
     );
-};
-
-export default Tooltip;
+}
