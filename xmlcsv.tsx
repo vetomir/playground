@@ -311,3 +311,54 @@ export async function getSheetNames(file: File): Promise<string[]> {
 
     return ['Data'];
 }
+
+
+// parseXmlFile.ts
+import { XMLParser } from 'fast-xml-parser';
+
+// Simple XML (no sheets) and custom-sheet support
+export async function parseXMLFile(file: File, sheetName?: string): Promise<object[]> {
+    const text = await file.text();
+    const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '',
+    });
+    const parsed = parser.parse(text);
+
+    // Excel‑like custom format: <data><sheet name="..."><row>...</row></sheet></data>
+    const sheetsContainer = parsed.data?.sheet || parsed.sheets?.sheet;
+    if (sheetsContainer) {
+        const sheets = Array.isArray(sheetsContainer) ? sheetsContainer : [sheetsContainer];
+
+        if (sheetName) {
+            const sheet = sheets.find((s: any) => s.name === sheetName || s?.['name'] === sheetName);
+            if (!sheet) return [];
+            const rows = sheet.row;
+            return Array.isArray(rows) ? rows : rows ? [rows] : [];
+        }
+
+        // wszystkie sheety złączone
+        return sheets.flatMap((s: any) => {
+            const rows = s.row;
+            return Array.isArray(rows) ? rows : rows ? [rows] : [];
+        });
+    }
+
+    // Prosty XML – znajdź pierwszą tablicę
+    const findArray = (obj: any, depth = 0): any[] => {
+        if (!obj || depth > 5) return [];
+        if (Array.isArray(obj)) return obj;
+        for (const key in obj) {
+            const val = obj[key];
+            if (Array.isArray(val)) return val;
+            if (typeof val === 'object') {
+                const res = findArray(val, depth + 1);
+                if (res.length) return res;
+            }
+        }
+        return [];
+    };
+
+    const arr = findArray(parsed);
+    return arr.length ? arr : [parsed];
+}
