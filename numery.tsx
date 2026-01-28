@@ -1,198 +1,110 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import './style.css';
+import * as xml2js from 'xml2js';
 
-interface OptimizedTableProps {
-    data: Record<string, any>[];
-    headers: string[];
-    estimatedRowHeight?: number;
-    estimatedColumnWidth?: number;
-    rowOverscan?: number;
-    columnOverscan?: number;
+export interface ParsedSheet {
+    name: string;
+    data: object[];
 }
 
-export const OptimizedTable: React.FC<OptimizedTableProps> = ({
-                                                                  data,
-                                                                  headers,
-                                                                  estimatedRowHeight = 35,
-                                                                  estimatedColumnWidth = 150,
-                                                                  rowOverscan,
-                                                                  columnOverscan,
-                                                              }) => {
-    const parentRef = useRef<HTMLDivElement>(null);
-    const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+export interface ParseXMLResult {
+    sheets: ParsedSheet[];
+    allData: object[];
+}
 
-    // ResizeObserver do dynamicznego dostosowania rozmiaru
-    useEffect(() => {
-        if (!parentRef.current) return;
+/**
+ * Parses XML file and returns structured data with sheet information
+ * @param file - XML file to parse
+ * @returns Promise with sheets array and combined data
+ */
+export async function parseXMLFile(file: File): Promise<ParseXMLResult> {
+    const text = await file.text();
+    const parser = new xml2js.Parser({ explicitArray: false, mergeAttrs: true });
+    const parsed = await parser.parseStringPromise(text);
 
-        const resizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                setContainerSize({
-                    width: entry.contentRect.width,
-                    height: entry.contentRect.height,
-                });
-            }
+    // Excel XML with worksheets
+    if (parsed.Workbook?.Worksheet) {
+        const worksheets = Array.isArray(parsed.Workbook.Worksheet)
+            ? parsed.Workbook.Worksheet
+            : [parsed.Workbook.Worksheet];
+
+        const sheets = worksheets.map(sheet => {
+            const name = sheet['ss:Name'] || sheet.Name || 'Sheet';
+            const rows = Array.isArray(sheet.Table?.Row) ? sheet.Table.Row : [sheet.Table?.Row].filter(Boolean);
+            const data = rows.map(row => {
+                const cells = Array.isArray(row.Cell) ? row.Cell : [row.Cell].filter(Boolean);
+                return cells.reduce((obj, cell, i) => {
+                    obj[`col${i}`] = cell.Data?._ || cell.Data || '';
+                    return obj;
+                }, {} as any);
+            });
+
+            return { name, data };
         });
 
-        resizeObserver.observe(parentRef.current);
-        return () => resizeObserver.disconnect();
-    }, []);
+        return {
+            sheets,
+            allData: sheets.flatMap(s => s.data),
+        };
+    }
 
-    // Oblicz dynamiczny overscan jeśli nie podano w props
-    const calculatedRowOverscan = rowOverscan ?? Math.ceil(containerSize.height / estimatedRowHeight) || 5;
-    const calculatedColumnOverscan = columnOverscan ?? Math.ceil(containerSize.width / estimatedColumnWidth) || 3;
+    // Custom format with sheets
+    if (parsed.data?.sheet || parsed.sheets?.sheet) {
+        const sheetsData = Array.isArray(parsed.data?.sheet || parsed.sheets?.sheet)
+            ? (parsed.data?.sheet || parsed.sheets?.sheet)
+            : [parsed.data?.sheet || parsed.sheets?.sheet];
 
-    // Wirtualizacja wierszy
-    const rowVirtualizer = useVirtualizer({
-        count: data.length,
-        getScrollElement: () => parentRef.current,
-        estimateSize: () => estimatedRowHeight,
-        overscan: calculatedRowOverscan,
-    });
+        const sheets = sheetsData.map(sheet => {
+            const name = sheet.name || sheet.$.name || 'Unnamed';
+            const rows = Array.isArray(sheet.row) ? sheet.row : [sheet.row].filter(Boolean);
+            return { name, data: rows };
+        });
 
-    // Wirtualizacja kolumn
-    const columnVirtualizer = useVirtualizer({
-        horizontal: true,
-        count: headers.length,
-        getScrollElement: () => parentRef.current,
-        estimateSize: () => estimatedColumnWidth,
-        overscan: calculatedColumnOverscan,
-    });
+        return {
+            sheets,
+            allData: sheets.flatMap(s => s.data),
+        };
+    }
 
-    const virtualRows = rowVirtualizer.getVirtualItems();
-    const virtualColumns = columnVirtualizer.getVirtualItems();
+    // Simple XML without sheets
+    const findArray = (obj: any, depth = 0): any[] => {
+        if (depth > 5 || !obj) return [];
+        if (Array.isArray(obj)) return obj;
 
-    // Automatyczne dopasowanie szerokości kolumn do kontenera
-    const columnWidth = containerSize.width > 0
-        ? Math.max(estimatedColumnWidth, containerSize.width / Math.min(headers.length, 8))
-        : estimatedColumnWidth;
+        for (const key in obj) {
+            if (Array.isArray(obj[key])) return obj[key];
+            if (typeof obj[key] === 'object') {
+                const result = findArray(obj[key], depth + 1);
+                if (result.length > 0) return result;
+            }
+        }
+        return [];
+    };
 
-    // Padding dla wirtualnych elementów
-    const [paddingTop, paddingBottom] =
-        virtualRows.length > 0
-            ? [
-                Math.max(0, virtualRows[0].start),
-                Math.max(0, rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end),
-            ]
-            : [0, 0];
+    const data = findArray(parsed);
+    const finalData = data.length > 0 ? data : [parsed];
 
-    const [paddingLeft, paddingRight] =
-        virtualColumns.length > 0
-            ? [
-                Math.max(0, virtualColumns[0].start),
-                Math.max(0, columnVirtualizer.getTotalSize() - virtualColumns[virtualColumns.length - 1].end),
-            ]
-            : [0, 0];
+    return {
+        sheets: [{ name: 'Data', data: finalData }],
+        allData: finalData,
+    };
+}
 
-    return (
-        <div ref={parentRef} className="table-container">
-            <div
-                className="table-wrapper"
-                style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: `${columnVirtualizer.getTotalSize()}px`,
-                }}
-            >
-                <table className="virtualized-table">
-                    <thead className="sticky-header">
-                    <tr>
-                        {paddingLeft > 0 && <th style={{ width: paddingLeft }} />}
-                        {virtualColumns.map((virtualColumn) => {
-                            const header = headers[virtualColumn.index];
-                            return (
-                                <th
-                                    key={virtualColumn.key}
-                                    style={{
-                                        width: `${columnWidth}px`,
-                                        minWidth: `${columnWidth}px`,
-                                    }}
-                                >
-                                    {header}
-                                </th>
-                            );
-                        })}
-                        {paddingRight > 0 && <th style={{ width: paddingRight }} />}
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {paddingTop > 0 && (
-                        <tr>
-                            <td style={{ height: paddingTop }} />
-                        </tr>
-                    )}
-                    {virtualRows.map((virtualRow) => {
-                        const row = data[virtualRow.index];
-                        return (
-                            <tr
-                                key={virtualRow.key}
-                                style={{
-                                    height: `${virtualRow.size}px`,
-                                }}
-                            >
-                                {paddingLeft > 0 && <td style={{ width: paddingLeft }} />}
-                                {virtualColumns.map((virtualColumn) => {
-                                    const header = headers[virtualColumn.index];
-                                    return (
-                                        <td
-                                            key={virtualColumn.key}
-                                            style={{
-                                                width: `${columnWidth}px`,
-                                                minWidth: `${columnWidth}px`,
-                                            }}
-                                        >
-                                            {row[header] ?? ''}
-                                        </td>
-                                    );
-                                })}
-                                {paddingRight > 0 && <td style={{ width: paddingRight }} />}
-                            </tr>
-                        );
-                    })}
-                    {paddingBottom > 0 && (
-                        <tr>
-                            <td style={{ height: paddingBottom }} />
-                        </tr>
-                    )}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-};
+/**
+ * Gets data from specific sheet by name
+ * @param result - Result from parseXMLFile
+ * @param sheetName - Name of the sheet to retrieve
+ * @returns Array of objects from specified sheet or empty array
+ */
+export function getSheetByName(result: ParseXMLResult, sheetName: string): object[] {
+    const sheet = result.sheets.find(s => s.name === sheetName);
+    return sheet?.data || [];
+}
 
-
-// Domyślne wartości (35px wysokość, 150px szerokość)
-<OptimizedTable data={data} headers={headers} />
-
-// Większe wiersze (np. dla danych z długim tekstem)
-<OptimizedTable
-    data={data}
-    headers={headers}
-    estimatedRowHeight={50}
-/>
-
-// Szersze kolumny
-<OptimizedTable
-    data={data}
-    headers={headers}
-    estimatedColumnWidth={200}
-/>
-
-// Pełna konfiguracja
-<OptimizedTable
-    data={data}
-    headers={headers}
-    estimatedRowHeight={40}
-    estimatedColumnWidth={180}
-    rowOverscan={10}
-    columnOverscan={5}
-/>
-
-// Kompaktowa tabela
-<OptimizedTable
-    data={data}
-    headers={headers}
-    estimatedRowHeight={28}
-    estimatedColumnWidth={120}
-/>
+/**
+ * Gets data from sheet by index
+ * @param result - Result from parseXMLFile
+ * @param index - Index of the sheet (0-based)
+ * @returns Array of objects from specified sheet or empty array
+ */
+export function getSheetByIndex(result: ParseXMLResult, index: number): object[] {
+    return result.sheets[index]?.data || [];
+}
